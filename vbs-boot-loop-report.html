@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VBS Boot Loop Report</title>
+<meta name="description" content="Windows turned on VBS by itself and three PCs stopped booting with error 0xc0000001. Registry and boot debugger evidence, plus the fix.">
+<style>
+  :root {
+    --bg: #ffffff;
+    --text: #1d2228;
+    --muted: #5d6670;
+    --line: #e3e6ea;
+    --card: #f6f7f9;
+    --code-bg: #f6f7f9;
+    --code-text: #2b3138;
+    --dim: #9aa3ad;
+    --link: #0b62c4;
+    --vbs-bg: #fff4cc;
+    --vbs-bar: #d9a400;
+    --fail-bg: #ffe3e1;
+    --fail-bar: #d93b30;
+    --good-bg: #ddf5e3;
+    --good-bar: #22994a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15181c;
+      --text: #e6e9ec;
+      --muted: #9aa4ae;
+      --line: #2b3138;
+      --card: #1c2025;
+      --code-bg: #1c2025;
+      --code-text: #d5dae0;
+      --dim: #66707a;
+      --link: #6cb2ff;
+      --vbs-bg: #3a3112;
+      --vbs-bar: #e0b52a;
+      --fail-bg: #3d1d1b;
+      --fail-bar: #f0675c;
+      --good-bg: #173322;
+      --good-bar: #4cc277;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15181c;
+    --text: #e6e9ec;
+    --muted: #9aa4ae;
+    --line: #2b3138;
+    --card: #1c2025;
+    --code-bg: #1c2025;
+    --code-text: #d5dae0;
+    --dim: #66707a;
+    --link: #6cb2ff;
+    --vbs-bg: #3a3112;
+    --vbs-bar: #e0b52a;
+    --fail-bg: #3d1d1b;
+    --fail-bar: #f0675c;
+    --good-bg: #173322;
+    --good-bar: #4cc277;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main {
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 40px 16px 64px;
+  }
+  h1 {
+    font-size: 30px;
+    line-height: 1.25;
+    margin: 0 0 6px;
+  }
+  .sub { color: var(--muted); margin: 0 0 28px; }
+  h2 {
+    font-size: 21px;
+    margin: 44px 0 12px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  h3 { font-size: 17px; margin: 28px 0 8px; }
+  p { margin: 0 0 14px; }
+  ul, ol { margin: 0 0 14px; padding-left: 22px; }
+  li { margin: 4px 0; }
+  a { color: var(--link); }
+  code {
+    font-family: Consolas, "Cascadia Mono", Menlo, monospace;
+    font-size: 0.9em;
+    background: var(--code-bg);
+    padding: 1px 5px;
+    border-radius: 4px;
+    overflow-wrap: anywhere;
+  }
+
+  .table-wrap { overflow-x: auto; margin: 0 0 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td {
+    text-align: left;
+    vertical-align: top;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line);
+  }
+  th { color: var(--muted); font-weight: 600; white-space: nowrap; }
+
+  .key { display: flex; flex-wrap: wrap; gap: 8px 18px; margin: 0 0 18px; font-size: 14px; color: var(--muted); }
+  .key span { display: inline-flex; align-items: center; gap: 6px; }
+  .sw { width: 14px; height: 14px; border-radius: 3px; border-left: 4px solid; }
+  .sw.vbs { background: var(--vbs-bg); border-color: var(--vbs-bar); }
+  .sw.fail { background: var(--fail-bg); border-color: var(--fail-bar); }
+  .sw.good { background: var(--good-bg); border-color: var(--good-bar); }
+
+  .log {
+    background: var(--code-bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    margin: 0 0 12px;
+    overflow-x: auto;
+  }
+  .log-title {
+    font-size: 13px;
+    color: var(--muted);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .log pre {
+    margin: 0;
+    padding: 8px 0;
+    font: 13px/1.55 Consolas, "Cascadia Mono", Menlo, monospace;
+    color: var(--code-text);
+    min-width: max-content;
+  }
+  .l { display: block; padding: 0 12px 0 14px; border-left: 4px solid transparent; }
+  .l.dim { color: var(--dim); }
+  .l.vbs { background: var(--vbs-bg); border-left-color: var(--vbs-bar); }
+  .l.fail { background: var(--fail-bg); border-left-color: var(--fail-bar); }
+  .l.good { background: var(--good-bg); border-left-color: var(--good-bar); }
+  .n {
+    display: inline-block;
+    min-width: 18px;
+    margin-right: 8px;
+    font-weight: 700;
+    text-align: center;
+    color: var(--muted);
+  }
+  .l.vbs .n { color: var(--vbs-bar); }
+  .l.fail .n { color: var(--fail-bar); }
+  .l.good .n { color: var(--good-bar); }
+  .l:not(.vbs):not(.fail):not(.good) .n { visibility: hidden; }
+
+  ol.notes { margin-bottom: 8px; }
+  ol.notes li::marker { font-weight: 700; color: var(--muted); }
+
+  .callout {
+    border-left: 4px solid var(--link);
+    background: var(--card);
+    padding: 12px 16px;
+    border-radius: 0 8px 8px 0;
+    margin: 0 0 14px;
+  }
+  .callout p:last-child { margin: 0; }
+
+  .sources li { margin: 8px 0; }
+  .sources .what { color: var(--muted); display: block; font-size: 15px; }
+
+  footer { margin-top: 48px; color: var(--muted); font-size: 14px; }
+
+  @media (max-width: 600px) {
+    main { padding-top: 28px; }
+    h1 { font-size: 25px; }
+    h2 { font-size: 19px; }
+    .log pre { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Windows Turning On VBS By Itself Is Causing Boot Loops</h1>
+<p class="sub">Error 0xc0000001 &middot; Windows 11 &middot; November 2026</p>
+
+<h2>Quick rundown</h2>
+<ul>
+  <li>Windows turned VBS on by itself. The registry shows <code>EnableVirtualizationBasedSecurity = 1</code> and <code>WasEnabledBy = 1</code>, with no group policy behind it.</li>
+  <li>On the next full boot, the boot loader loads the hypervisor and the secure kernel, then the PC resets before Windows starts.</li>
+  <li>After a few resets in a row, Windows shows <strong>0xc0000001</strong> "Your PC couldn't start properly ... After multiple tries".</li>
+  <li>Startup Repair finds nothing and there are no crash dumps, because the failure happens before Windows itself is running.</li>
+  <li>Turning VBS off in the registry from a recovery USB fixed every one.</li>
+</ul>
+
+<h2>Affected Computers</h2>
+<div class="table-wrap">
+<table>
+  <thead>
+    <tr><th>PC</th><th>Firmware</th><th>What happened</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Lenovo ThinkCentre M75s Gen 2 (AMD)</td>
+      <td>2021 BIOS</td>
+      <td>Boot loop right after the logo. The boot loader failed while launching the hypervisor, error <code>c000007b</code>.</td>
+    </tr>
+    <tr>
+      <td>HP Laptop 17-cp3xxx (AMD)</td>
+      <td>BIOS F.11</td>
+      <td>Windows turned VBS on 6 minutes after a good boot. Fast Startup hid it for days, until the first real restart.</td>
+    </tr>
+    <tr>
+      <td>Lenovo ThinkPad (type 21BW)</td>
+      <td>N3MET29W</td>
+      <td>0xc0000001 "After multiple tries". Resets right after the hypervisor loads. Windows install was moved over from another PC.</td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+<h2>What I found</h2>
+<div class="key">
+  <span><i class="sw vbs"></i>Shows VBS is on / loading</span>
+  <span><i class="sw fail"></i>Shows the failure</span>
+  <span><i class="sw good"></i>Shows the fix working</span>
+</div>
+
+<h3>1. The registry: Windows turned VBS on</h3>
+<p>Read from the ThinkPad's offline registry, from a recovery USB. The other two PCs showed the same values.</p>
+<div class="log">
+  <div class="log-title">SYSTEM\ControlSet001\Control\DeviceGuard</div>
+<pre><span class="l"><span class="n"></span>CachedDrtmAuthIndex               = 0</span><span class="l vbs"><span class="n">1</span>RequireMicrosoftSignedBootChain   = 1</span><span class="l vbs"><span class="n">2</span>WasEnabledBy                      = 1</span><span class="l vbs"><span class="n">3</span>EnableVirtualizationBasedSecurity = 1</span><span class="l"><span class="n"></span>HyperVVirtualizationBasedSecurityOptout = 0</span><span class="l dim"><span class="n"></span></span><span class="l"><span class="n"></span>VelocityScenarios\VbsCompatIssues = 0</span><span class="l"><span class="n"></span>VelocityScenarios\HvciScanResult  = 0</span><span class="l dim"><span class="n"></span></span><span class="l dim"><span class="n"></span>(no DeviceGuard group policy key)</span></pre>
+</div>
+<ol class="notes">
+  <li>A stricter boot requirement that came on together with VBS.</li>
+  <li><code>WasEnabledBy = 1</code> is the value Microsoft's own docs use when Windows (not a person or policy) turns the feature on.</li>
+  <li>VBS is on. Nobody at the customer turned this on, and there is no group policy for it.</li>
+</ol>
+<p>On the HP, the DeviceGuard key was last written at 5:40 PM on Nov 4, six minutes after the last good full boot at 5:34 PM.</p>
+
+<h3>2. ThinkPad boot debugger: the failing boot</h3>
+<p>The boot loader loads the hypervisor and the secure kernel (that's VBS starting), hands off, and the kernel never comes up. A new boot starts on its own 24 seconds later, and Windows gives up.</p>
+<div class="log">
+  <div class="log-title">Kernel debugger (KDNET), VBS on, Nov 18</div>
+<pre><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Wed Nov 18 08:03:02.600 2026)</span><span class="l"><span class="n"></span>Windows Boot Debugger Kernel Version 26100 UP Free x64</span><span class="l vbs"><span class="n">1</span>Rebase Hv by: 7d400000</span><span class="l"><span class="n"></span>Rebase Kdnet extension by: fdacc000</span><span class="l dim"><span class="n"></span>Ignoring failure to load driver \Windows\system32\DRIVERS\WinSetupMon.sys</span><span class="l dim"><span class="n"></span>error control 0, status c000000f.</span><span class="l vbs"><span class="n">2</span>SecureKernel virtual image base = 0xFFFFF8072FC9B000 Image size = 0x17a000</span><span class="l"><span class="n"></span>Shutdown occurred at (Wed Nov 18 08:03:04.881 2026)...unloading all symbol tables.</span><span class="l"><span class="n"></span>BD: Boot Debugger Initialized</span><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Wed Nov 18 08:03:09.043 2026)</span><span class="l fail"><span class="n">3</span>Shutdown occurred at (Wed Nov 18 08:03:09.364 2026)...unloading all symbol tables.</span><span class="l dim"><span class="n"></span>   ... nothing for 24 seconds, the Windows kernel never connects ...</span><span class="l fail"><span class="n">4</span>Connected to Windows Boot Debugger 26100 x64 target at (Wed Nov 18 08:03:33.829 2026)</span><span class="l fail"><span class="n">5</span>The system failed to boot multiple times in a row.</span><span class="l fail"><span class="n"></span>*** Fatal Error 0x00000001 :</span><span class="l fail"><span class="n"></span>                (0x000000000000000F, 0x0000000000000000, 0x0000000000000000, 0x0000000000000000)</span></pre>
+</div>
+<ol class="notes">
+  <li>The boot loader loads the Windows hypervisor (<code>Hv</code>). It only does this because VBS is on.</li>
+  <li>The secure kernel loads. That is the part of VBS that runs inside the hypervisor.</li>
+  <li>The hypervisor launch step ends. On a good boot, the Windows kernel connects about 4 seconds after this line.</li>
+  <li>Instead the PC has reset and the boot manager is starting over.</li>
+  <li>After a few of these resets, Windows stops trying and shows the 0xc0000001 screen.</li>
+</ol>
+<p>The <code>WinSetupMon.sys</code> line is normal noise. That driver is optional (error control 0) and shows up on the good boot too.</p>
+
+<h3>3. ThinkCentre boot debugger: the hypervisor launch fails</h3>
+<p>Same start: hypervisor and secure kernel load. This time the boot loader reports the error itself.</p>
+<div class="log">
+  <div class="log-title">Kernel debugger (KDNET), VBS on, Nov 10</div>
+<pre><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Tue Nov 10 09:22:00.235 2026)</span><span class="l vbs"><span class="n">1</span>Rebase Hv by: 12400000</span><span class="l"><span class="n"></span>Rebase Kdnet extension by: 92b4e000</span><span class="l vbs"><span class="n">1</span>SecureKernel virtual image base = 0xFFFFF80032CB7000 Image size = 0x17a000</span><span class="l"><span class="n"></span>Shutdown occurred at (Tue Nov 10 09:22:02.113 2026)...unloading all symbol tables.</span><span class="l dim"><span class="n"></span>   ... boot debugger reconnects twice during the hand-off ...</span><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Tue Nov 10 09:22:07.481 2026)</span><span class="l fail"><span class="n">2</span>Fatal error in execute transition phase (c000007b).</span><span class="l fail"><span class="n"></span>*** Fatal Error 0x00000001 :</span><span class="l fail"><span class="n"></span>                (0x0000000000000015, 0xFFFFFFFFC000007B, 0x0000000000000004, 0x0000000000000000)</span><span class="l dim"><span class="n"></span></span><span class="l"><span class="n"></span>kd&gt; k</span><span class="l"><span class="n"></span>00 winload!BlStatusError+0x85</span><span class="l"><span class="n"></span>01 winload!OslFatalErrorEx+0x5e9</span><span class="l fail"><span class="n">3</span>02 winload!OslExecuteTransition+0x251</span><span class="l"><span class="n"></span>03 winload!OslpMain+0x152</span><span class="l"><span class="n"></span>04 winload!OslMain+0x11c</span><span class="l dim"><span class="n"></span></span><span class="l"><span class="n"></span>kd&gt; uf /c winload!OslExecuteTransition</span><span class="l vbs"><span class="n">4</span>  winload!OslExecuteTransition+0x13d: call to winload!VlpSetupLaunchPhase</span><span class="l dim"><span class="n"></span></span><span class="l"><span class="n"></span>kd&gt; lm</span><span class="l vbs"><span class="n">5</span>000007ff`ff879000 000007ff`ff8bd000   hvloader   (Hv Loader Library)</span></pre>
+</div>
+<ol class="notes">
+  <li>Hypervisor and secure kernel load, same as the ThinkPad.</li>
+  <li>The boot loader fails in its last step, the "execute transition" (the hand-off where the hypervisor is started), with <code>c000007b</code>.</li>
+  <li>The stack confirms it failed inside <code>OslExecuteTransition</code>.</li>
+  <li>That step is where the boot loader calls <code>VlpSetupLaunchPhase</code>, the VBS launch code.</li>
+  <li>The hypervisor loader (<code>hvloader</code>) is loaded at the time of the failure.</li>
+</ol>
+
+<h3>4. ThinkPad boot debugger: same PC with VBS turned off</h3>
+<p>Nothing else changed. The hypervisor and secure kernel lines are gone, and the Windows kernel connects.</p>
+<div class="log">
+  <div class="log-title">Kernel debugger (KDNET), VBS off, Nov 18</div>
+<pre><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Wed Nov 18 08:12:39.777 2026)</span><span class="l dim"><span class="n"></span>Ignoring failure to load driver \Windows\system32\DRIVERS\WinSetupMon.sys</span><span class="l dim"><span class="n"></span>error control 0, status c000000f.</span><span class="l good"><span class="n">1</span>Shutdown occurred at (Wed Nov 18 08:12:41.392 2026)...unloading all symbol tables.</span><span class="l"><span class="n"></span>BD: Boot Debugger Initialized</span><span class="l"><span class="n"></span>Connected to Windows Boot Debugger 26100 x64 target at (Wed Nov 18 08:12:45.562 2026)</span><span class="l"><span class="n"></span>Shutdown occurred at (Wed Nov 18 08:12:45.855 2026)...unloading all symbol tables.</span><span class="l good"><span class="n">2</span>Connected to Windows 10 26100 x64 target at (Wed Nov 18 08:12:50.013 2026)</span><span class="l good"><span class="n"></span>Windows 10 Kernel Version 26100 MP (1 procs) Free x64</span><span class="l good"><span class="n">3</span>System Uptime: 0 days 0:00:04.139</span><span class="l"><span class="n"></span>Capacity:77960, FullChargedCapacity:77960, Voltage:16826, Rate:0</span></pre>
+</div>
+<ol class="notes">
+  <li>No <code>Rebase Hv</code> and no <code>SecureKernel</code> before the hand-off this time.</li>
+  <li>The Windows kernel connects. It never got this far with VBS on.</li>
+  <li>Windows is running and keeps loading drivers. It made it to the sign-in screen.</li>
+</ol>
+
+<h2>The fix</h2>
+<p>Done offline from a WinPE / recovery USB, with the Windows drive as <code>C:</code>.</p>
+<ol>
+  <li>Back up <code>C:\Windows\System32\config\SYSTEM</code> to the USB.</li>
+  <li>Load the hive: <code>reg load HKLM\OFF C:\Windows\System32\config\SYSTEM</code></li>
+  <li>Under <code>HKLM\OFF\ControlSet001\Control\DeviceGuard</code> set:
+    <ul>
+      <li><code>EnableVirtualizationBasedSecurity = 0</code></li>
+      <li><code>RequireMicrosoftSignedBootChain = 0</code></li>
+      <li><code>Scenarios\HypervisorEnforcedCodeIntegrity\Enabled = 0</code></li>
+    </ul>
+  </li>
+  <li>Unload the hive: <code>reg unload HKLM\OFF</code>, then boot normally.</li>
+  <li>Update the BIOS / UEFI firmware before letting VBS back on.</li>
+</ol>
+<p>Turning off SVM / AMD-V (or Intel VT-x) in the BIOS also gets the PC booting, because it stops the hypervisor from loading. But that breaks WSL, Hyper-V and Sandbox, so the registry change is the better fix.</p>
+
+<h2>Has anyone else found this?</h2>
+<div class="callout">
+  <p><strong>Partly.</strong> Microsoft has said that updates starting in October 2026 turn on memory integrity, and VBS with it, on more PCs. Separately, people are reporting 0xc0000001 boot loops after the November update (KB5132061). As of Nov 18, 2026 I couldn't find anyone who connected the two, or anyone who caught the hypervisor failing in a boot debugger. Microsoft does not list the boot loop as a known issue.</p>
+</div>
+<ul class="sources">
+  <li><a href="https://mc.merill.net/message/MC1465669">MC1465669: Expanding memory integrity protection across Windows devices</a>
+    <span class="what">Microsoft, Sept 1, 2026. Quality updates from October 2026 turn on memory integrity on eligible PCs, and on some PCs this also turns on VBS.</span></li>
+  <li><a href="https://www.windowslatest.com/2026/11/11/windows-11-is-now-force-enabling-memory-integrity-a-feature-microsoft-admitted-can-hurt-gaming-performance-and-heres-how-to-turn-it-off/">Windows 11 is now force-enabling Memory Integrity</a>
+    <span class="what">Windows Latest, Nov 11, 2026. Started in KB5127936 (Oct) and carried into KB5132061 (Nov).</span></li>
+  <li><a href="https://learn.microsoft.com/en-us/windows-hardware/design/device-experiences/oem-hvci-enablement">Memory integrity enablement</a>
+    <span class="what">Microsoft Learn. Explains <code>WasEnabledBy</code> and <code>EnabledBootId</code>: a safeguard that turns memory integrity back off if the PC crashes during boot.</span></li>
+  <li><a href="https://www.howto-connect.com/kb5132061-boot-loop/">KB5132061 Boot Loop</a>
+    <span class="what">Nov 17, 2026. Reports of 0xc0000001 after KB5132061. An AMD ThinkPad booted again after SVM was turned off in the BIOS.</span></li>
+  <li><a href="https://www.windowsdigitals.com/kb5132061-wont-boot/">PC Won't Boot After KB5132061</a>
+    <span class="what">Nov 2026. Reset right after the logo. Turning off Intel VT-x helped some users. VBS is not mentioned.</span></li>
+  <li><a href="https://github.com/microsoft/WSL/issues/40344">microsoft/WSL issue #40344</a>
+    <span class="what">AMD board with older firmware gets 0xc0000001 whenever the hypervisor launches. A Microsoft staff member called it a likely driver / hypervisor issue.</span></li>
+</ul>
+
+<h2>Notes</h2>
+<ul>
+  <li><strong>Why the safeguard didn't help:</strong> Microsoft's auto-revert depends on Windows seeing a crash during boot. Here the PC resets before the Windows kernel ever starts, so Windows may never count it as a failed boot. I also didn't see an <code>EnabledBootId</code> value on the ThinkPad.</li>
+  <li><strong>It hides for days:</strong> With Fast Startup on, shutting down is really hibernating, so the PC keeps resuming fine. The loop starts on the first real restart, often days after VBS was turned on.</li>
+  <li><strong>Startup Repair won't find it:</strong> No crash dump and no event log entry, because Windows never starts. It may say a "recently serviced boot binary is corrupt", but the files are fine.</li>
+  <li><strong>Secure Boot doesn't look like the trigger:</strong> The ThinkPad still reset with Secure Boot turned off.</li>
+  <li><strong>Firmware looks like a factor:</strong> Two of the three are AMD PCs on older BIOS versions. I haven't confirmed whether a BIOS update alone fixes it.</li>
+  <li><strong>Quick check from WinPE:</strong> If <code>DeviceGuard\EnableVirtualizationBasedSecurity = 1</code> and <code>WasEnabledBy = 1</code> on a PC that loops right after the logo, this is very likely the cause.</li>
+</ul>
+
+<footer>Written Nov 18, 2026</footer>
+
+</main>
+</body>
+</html>
